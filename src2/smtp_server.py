@@ -1,14 +1,17 @@
-import socket
-import os
-import threading
 import hashlib
+import logging
+import os
+import socket
+import threading
+
+logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %(message)s')
 
 
 EMAILS_STORAGE_DIR = "emails"
 PASSWORDS_FILE = "passwords.txt"
 
-
-
+if not os.path.isfile(PASSWORDS_FILE):
+    open(PASSWORDS_FILE, 'w').close()
 
 if not os.path.exists(EMAILS_STORAGE_DIR):
     os.makedirs(EMAILS_STORAGE_DIR)
@@ -25,11 +28,11 @@ class SMTPServer:
             server_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
             server_socket.bind((host, port))
             server_socket.listen(5)
-            print(f"SMTP server listening on port {port}...")
+            logging.info(msg=f"SMTP server listening on port {port}...")
 
             while True:
                 client_socket, client_address = server_socket.accept()
-                print(f"Connection from {client_address}")
+                logging.info(msg=f"Connection from {client_address}")
                 self.handle_client(client_socket)
 
     def handle_client(self, client_socket):
@@ -43,8 +46,10 @@ class SMTPServer:
         while True:
             data = client_socket.recv(1024).decode().strip()
             if not data:
-                break
-            print(f"Received: << {data} >>")
+                client_socket.sendall(b"500 Syntax error: no command provided\r\n")
+                continue
+
+            logging.info(msg=f"Received: command << {data} >>")
 
             if data_mode:
                 if data == ".":
@@ -57,33 +62,39 @@ class SMTPServer:
                     message_data+= data + "\r\n"
                 continue
 
+            if data.startswith("HELO"):
+                user = data.split()[1]
+                response = f"250 Hello {user}\r\n"
+
             if data.startswith("EHLO"):
                 user = data.split()[1]
-                passwords_file = open(PASSWORDS_FILE, "r+")
-                passwords = dict([line.strip().split(":") for line in passwords_file.readlines()])
-                
-                if user in passwords:
-                    client_socket.sendall(f"250 Hello {user}, enter your password please:\r\n".encode())
-                    login = False
+                with open(PASSWORDS_FILE, "r+") as passwords_file:
+                    passwords = dict([line.strip().split(":") for line in passwords_file.readlines()])
 
-                    for i in range(5):
-                        password = client_socket.recv(1024).decode().strip()
-                        print(hashlib.sha3_224(password.encode()), passwords[user])
-                        if hashlib.sha3_224(password.encode()).hexdigest() == passwords[user]:
-                            response = "250 OK, Authenticated\r\n"
-                            login = True
+                    if user in passwords:
+                        logging.info(f"user {user} attempting login")
+                        client_socket.sendall(f"250 Hello {user}, enter your password please:\r\n".encode())
+                        login = False
+
+                        for i in range(5):
+                            password = client_socket.recv(1024).decode().strip()
+                            if hashlib.sha3_224(password.encode()).hexdigest() == passwords[user]:
+                                response = "250 OK, Authenticated\r\n"
+                                logging.info(msg=f"user {user} logged in")
+                                login = True
+                                break
+                            else:
+                                client_socket.sendall(f"\n500 Invalid password, you have {4-i} attempts remaining\r\n".encode())
+                        if not login:
+                            client_socket.sendall(b"500 Too many attempts, closing connection\r\n")
                             break
-                        else:
-                            client_socket.sendall(f"500 Invalid password, you have {4-i} attempts remaining\r\n".encode())
-                    if not login:
-                        client_socket.sendall(b"500 Too many attempts, closing connection\r\n")
-                        break
-                else:
-                    client_socket.sendall(f"250 Hello new user:{user}, enter a password please:\r\n".encode())
-                    password = client_socket.recv(1024).decode().strip()
-                    passwords_file.write(f"{user}:{hashlib.sha3_224(password.encode()).hexdigest()}\n")
-                    print(hashlib.sha3_224(password.encode()))
-                    response = "250 OK, Password set\r\n"
+                    else:
+                        logging.info(f"New user {user} attempting to create account")
+                        client_socket.sendall(f"250 Hello new user:{user}, enter a password please:\r\n".encode())
+                        password = client_socket.recv(1024).decode().strip()
+                        passwords_file.write(f"{user}:{hashlib.sha3_224(password.encode()).hexdigest()}\n")
+                        response = "250 OK, Password set\r\n"
+                        logging.info(msg=f"New user {user} created and logged in")
 
             elif data.startswith("MAIL FROM"):
                 sender = data.split(":")[1].strip()
@@ -101,6 +112,9 @@ class SMTPServer:
                 client_socket.sendall(b"221 Bye\r\n")
                 break
 
+            else:
+                response = "502 Command not recognized\r\n"
+
             client_socket.sendall(response.encode())
 
         client_socket.close()
@@ -113,7 +127,7 @@ class SMTPServer:
             email_file.write(f"From: {sender}\n")
             email_file.write(f"To: {recipients}\n")
             email_file.write(message_data)
-        print(f"Stored email {email_id} from {sender} to {recipients}")
+        logging.info(msg=f"Stored email {email_id} from {sender} to {recipients}")
 
 if __name__ == "__main__":
     server = SMTPServer()
