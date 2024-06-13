@@ -1,9 +1,14 @@
 import socket
 import os
 import threading
+import hashlib
 
 
 EMAILS_STORAGE_DIR = "emails"
+PASSWORDS_FILE = "passwords.txt"
+
+
+
 
 if not os.path.exists(EMAILS_STORAGE_DIR):
     os.makedirs(EMAILS_STORAGE_DIR)
@@ -52,9 +57,33 @@ class SMTPServer:
                     message_data+= data + "\r\n"
                 continue
 
-            if data.startswith("HELO"):
-                domain = data.split()[1]
-                response = f"250 Hello {domain}\r\n"
+            if data.startswith("EHLO"):
+                user = data.split()[1]
+                passwords_file = open(PASSWORDS_FILE, "r+")
+                passwords = dict([line.strip().split(":") for line in passwords_file.readlines()])
+                
+                if user in passwords:
+                    client_socket.sendall(f"250 Hello {user}, enter your password please:\r\n".encode())
+                    login = False
+
+                    for i in range(5):
+                        password = client_socket.recv(1024).decode().strip()
+                        print(hashlib.sha3_224(password.encode()), passwords[user])
+                        if hashlib.sha3_224(password.encode()).hexdigest() == passwords[user]:
+                            response = "250 OK, Authenticated\r\n"
+                            login = True
+                            break
+                        else:
+                            client_socket.sendall(f"500 Invalid password, you have {4-i} attempts remaining\r\n".encode())
+                    if not login:
+                        client_socket.sendall(b"500 Too many attempts, closing connection\r\n")
+                        break
+                else:
+                    client_socket.sendall(f"250 Hello new user:{user}, enter a password please:\r\n".encode())
+                    password = client_socket.recv(1024).decode().strip()
+                    passwords_file.write(f"{user}:{hashlib.sha3_224(password.encode()).hexdigest()}\n")
+                    print(hashlib.sha3_224(password.encode()))
+                    response = "250 OK, Password set\r\n"
 
             elif data.startswith("MAIL FROM"):
                 sender = data.split(":")[1].strip()
