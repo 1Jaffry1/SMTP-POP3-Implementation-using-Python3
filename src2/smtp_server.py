@@ -22,6 +22,7 @@ class SMTPServer:
         self.host = host
         self.port = port
         self.server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        self.client_socket = None
 
     def start_server(self, host='0.0.0.0', port=25):
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as server_socket:
@@ -42,6 +43,8 @@ class SMTPServer:
         data_mode = False
         message_data = ""
         response = None
+        login = False
+
 
         while True:
             data = client_socket.recv(1024).decode().strip()
@@ -50,6 +53,7 @@ class SMTPServer:
                 continue
 
             logging.info(msg=f"Received: command << {data} >>")
+            split_data = data.split(" ")
 
             if data_mode:
                 if data == ".":
@@ -57,23 +61,31 @@ class SMTPServer:
                     self.store_email(sender, recipients, message_data)
                     client_socket.sendall(b"250 OK: Message accepted for delivery\r\n")
                     message_data = ""
-
                 else:
                     message_data+= data + "\r\n"
                 continue
 
-            if data.startswith("HELO"):
+# COMMANDS SECTION, FIRST CHECK FOR QUIT
+            if data == "QUIT":
+                client_socket.sendall(b"221 Bye\r\n")
+                break
+
+            elif split_data[0].split(":")[0] == "HELO":
                 user = data.split()[1]
                 response = f"250 Hello {user}\r\n"
+                login = True
 
-            if data.startswith("EHLO"):
+            elif split_data[0].split(":")[0] == "EHLO":
+                if len(split_data) != 2:
+                    client_socket.sendall(f"501 2 params expected, got {len(split_data)}\r\n".encode())
+                    break
                 user = data.split()[1]
                 with open(PASSWORDS_FILE, "r+") as passwords_file:
                     passwords = dict([line.strip().split(":") for line in passwords_file.readlines()])
 
                     if user in passwords:
                         logging.info(f"user {user} attempting login")
-                        client_socket.sendall(f"250 Hello {user}, enter your password please:\r\n".encode())
+                        self.client_socket.sendall(f"250 Hello {user}, enter your password please:\r\n".encode())
                         login = False
 
                         for i in range(5):
@@ -84,7 +96,8 @@ class SMTPServer:
                                 login = True
                                 break
                             else:
-                                client_socket.sendall(f"\n500 Invalid password, you have {4-i} attempts remaining\r\n".encode())
+                                client_socket.sendall(
+                                    f"\n500 Invalid password, you have {4 - i} attempts remaining\r\n".encode())
                         if not login:
                             client_socket.sendall(b"500 Too many attempts, closing connection\r\n")
                             break
@@ -96,24 +109,35 @@ class SMTPServer:
                         response = "250 OK, Password set\r\n"
                         logging.info(msg=f"New user {user} created and logged in")
 
-            elif data.startswith("MAIL FROM"):
+
+            elif not login:
+                client_socket.sendall(b"500 Authentication error: You must authenticate first\r\n")
+                continue
+
+            elif data.split(":")[0] == "MAIL FROM":
+                if len(split_data) != 3:
+                    client_socket.sendall(f"501 1 params expected, got {len(split_data) - 2}\r\n".encode())
+                    continue
                 sender = data.split(":")[1].strip()
                 response = "250 Sender OK\r\n"
 
-            elif data.startswith("RCPT TO"):
+            elif data.split(":")[0] == "RCPT TO":
+                if len(split_data) != 3:
+                    client_socket.sendall(f"501 1 params expected, got {len(split_data) - 2}\r\n".encode())
+                    continue
                 recipients.append(data.split(":")[1].strip())
                 response = "250 Recipient OK\r\n"
 
-            elif data == "DATA":
+            elif split_data[0] == "DATA":
+                if data != "DATA":
+                    client_socket.sendall(b'500 Syntax error: Did you mean "DATA"?\r\n')
+                    continue
                 data_mode = True
                 response = "354 End data with <CR><LF>.<CR><LF>\r\n"
 
-            elif data == "QUIT":
-                client_socket.sendall(b"221 Bye\r\n")
-                break
-
             else:
                 response = "502 Command not recognized\r\n"
+
 
             client_socket.sendall(response.encode())
 
