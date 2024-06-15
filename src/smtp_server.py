@@ -41,13 +41,13 @@ if not os.path.isfile(PASSWORDS_FILE):
 
 
 class SMTPServer:
-    def __init__(self, host="0.0.0.0", port=25):
+    def __init__(self, host="0.0.0.0", port=26):
         self.host = host
         self.port = port
         self.server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self.client_socket = None
 
-    def start_server(self, host='0.0.0.0', port=25):
+    def start_server(self, host='0.0.0.0', port=26):
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as server_socket:
             server_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
             server_socket.bind((host, port))
@@ -68,9 +68,12 @@ class SMTPServer:
         message_subject = ""
         response = None
         login = False
+        step = 0
 
 
         while True:
+            if step == 0 and login:
+                step = 1
             data = client_socket.recv(1024).decode().strip()
             if not data:
                 client_socket.sendall(b"500 Syntax error: no command provided\r\n")
@@ -143,13 +146,22 @@ class SMTPServer:
                 continue
 
             elif data.split(":")[0] == "MAIL FROM":
+                if step != 1:
+                    client_socket.sendall(b"503 Bad sequence of commands\r\n")
+                    continue
+
                 if len(split_data) != 3:
                     client_socket.sendall(f"501 1 params expected, got {len(split_data) - 2}\r\n".encode())
                     continue
                 sender = data.split(":")[1].strip()
                 response = "250 Sender OK\r\n"
+                step = 2
 
             elif data.split(":")[0] == "RCPT TO":
+                if step != 2 and step != 3:
+                    client_socket.sendall(b"503 Bad sequence of commands\r\n")
+                    continue
+
                 recipient = data.split(":")[1].strip()
                 if len(split_data) != 3:
                     client_socket.sendall(f"501 1 params expected, got {len(split_data) - 2}\r\n".encode())
@@ -159,8 +171,13 @@ class SMTPServer:
                     continue
                 recipients.append(recipient)
                 response = "250 Recipient OK\r\n"
+                step = 3
 
             elif split_data[0] == "DATA":
+                if step != 3:
+                    client_socket.sendall(b"503 Bad sequence of commands\r\n")
+                    continue
+
                 if data != "DATA":
                     client_socket.sendall(b'500 Syntax error: Did you mean "DATA"?\r\n')
                     continue
@@ -204,6 +221,7 @@ class SMTPServer:
         finally:
             conn.close()
 
+
 def check_user_exists(username):
     conn = sqlite3.connect('email_server.db')
     cursor = conn.cursor()
@@ -213,8 +231,10 @@ def check_user_exists(username):
         WHERE email_addr = ?;
     ''', (username,))
     count = cursor.fetchone()[0]
+    conn.close()
     if count == 0:
         return False
+    return True
 
 
 if __name__ == "__main__":

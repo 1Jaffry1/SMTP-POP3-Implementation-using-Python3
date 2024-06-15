@@ -73,9 +73,11 @@ class POP3Server:
                             self.client_socket.sendall(b"-ERR Invalid login\r\n")
 
                     else:
-                        client_socket.sendall(b"+New user, password set")
+                        client_socket.sendall(b"+New user, password set\r\n")
                         passwords_file.write(f"{user}:{hashlib.sha3_224(password.encode()).hexdigest()}\n")
-                        logging.info(msg=f"New user {user} created")
+                        add_user(user)
+                        login = True
+                        logging.info(msg=f"New user {user} created and logged in")
 
 
             elif command == "QUIT":
@@ -89,11 +91,11 @@ class POP3Server:
                 continue
 
             elif command == "STAT":
-                num_messages, total_size = self.stat_mailbox(user)
+                num_messages, total_size = stat_mailbox(user)
                 client_socket.sendall(f"+OK {num_messages} {total_size}\r\n".encode())
 
             elif command == "LIST":
-                message_list = self.list_messages(user)
+                message_list = list_messages(user)
                 client_socket.sendall(f"+OK {len(message_list)} messages\r\n".encode())
                 for msg_id, size in message_list:
                     client_socket.sendall(f"{msg_id} {size}\r\n".encode())
@@ -101,7 +103,7 @@ class POP3Server:
 
             elif command == "RETR":
                 msg_id = int(args[0])
-                message = self.retrieve_message(user, msg_id)
+                message = retrieve_message(user, msg_id)
                 if message:
                     client_socket.sendall(b"+OK message follows\r\n")
                     client_socket.sendall(message.encode() + b"\r\n.\r\n")
@@ -114,67 +116,79 @@ class POP3Server:
                     client_socket.sendall(b"-ERR Not authenticated\r\n")
                     continue
                 msg_id = int(args[0])
-                self.delete_message(user, msg_id)
+                delete_message(user, msg_id)
                 client_socket.sendall(b"+OK message deleted\r\n")
 
 
             else:
                 client_socket.sendall(b"-ERR Unknown command\r\n")
 
-    def stat_mailbox(self, user):
-        conn = sqlite3.connect('email_server.db')
-        cursor = conn.cursor()
-        cursor.execute('''
-            SELECT COUNT(e.id), SUM(LENGTH(e.body))
-            FROM emails e
-            JOIN users r ON e.id = r.id
-            WHERE r.email_addr = ?;
-        ''', (user,))
-        num_messages, total_size = cursor.fetchone()
-        conn.close()
-        return num_messages, total_size
 
-    def message_list(self, user):
-        conn = sqlite3.connect('email_server.db')
-        cursor = conn.cursor()
-        cursor.execute('''
-            SELECT e.id, e.subject, LENGTH(e.body)
-            FROM emails e
-            JOIN users r ON e.id = r.id
-            WHERE r.email_addr = ?;
+def add_user(email_addr):
+    conn = sqlite3.connect('email_server.db')
+    cursor = conn.cursor()
+    cursor.execute('''
+        INSERT INTO users (email_addr)
+        VALUES (?);
+    ''', (email_addr,))
+    conn.commit()
+    conn.close()
+    
+    
+def stat_mailbox(user):
+    conn = sqlite3.connect('email_server.db')
+    cursor = conn.cursor()
+    cursor.execute('''
+        SELECT COUNT(e.id), SUM(LENGTH(e.body))
+        FROM emails e
+        JOIN users r ON e.id = r.id
+        WHERE r.email_addr = ?;
+    ''', (user,))
+    num_messages, total_size = cursor.fetchone()
+    conn.close()
+    return num_messages, total_size
+
+def list_messages(user):
+    conn = sqlite3.connect('email_server.db')
+    cursor = conn.cursor()
+    cursor.execute('''
+        SELECT e.id, e.subject, LENGTH(e.body)
+        FROM emails e
+        JOIN users r ON e.id = r.id
+        WHERE r.email_addr = ?;
 ''', (user,))
-        message_list = cursor.fetchall()
-        conn.close()
-        return message_list
+    message_list = cursor.fetchall()
+    conn.close()
+    return message_list
 
-    def retrieve_message(self, user, msg_id):
-        conn = sqlite3.connect('email_server.db')
-        cursor = conn.cursor()
-        cursor.execute('''
-            SELECT e.body
-            FROM emails e
-            JOIN users r ON e.id = r.id
-            WHERE r.email_addr = ? AND e.id = ?;
-        ''', (user, msg_id))
-        result = cursor.fetchone()
-        conn.close()
-        if result:
-            return result[0]
-        return None
+def retrieve_message(user, msg_id):
+    conn = sqlite3.connect('email_server.db')
+    cursor = conn.cursor()
+    cursor.execute('''
+        SELECT e.body
+        FROM emails e
+        JOIN users r ON e.id = r.id
+        WHERE r.email_addr = ? AND e.id = ?;
+    ''', (user, msg_id))
+    result = cursor.fetchone()
+    conn.close()
+    if result:
+        return result[0]
+    return None
 
-    def delete_message(self, user, msg_id):
-        conn = sqlite3.connect('email_server.db')
-        cursor = conn.cursor()
-        cursor.execute('''
-               DELETE FROM emails
-               WHERE id = ? AND sender IN (
-                   SELECT email_addr
-                   FROM users
-                   WHERE email_addr = ?
-               );
-           ''', (msg_id, user))
-        conn.commit()
-        conn.close()
+def delete_message(user, msg_id):
+    conn = sqlite3.connect('email_server.db')
+    cursor = conn.cursor()
+    cursor.execute('''
+           DELETE FROM emails
+           WHERE id = ? AND sender IN (
+               SELECT email_addr
+               FROM users
+               WHERE email_addr = ?
+           );
+       ''', (msg_id, user))
+    conn.commit()
+    conn.close()
 
 
 if __name__ == "__main__":
