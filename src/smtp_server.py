@@ -2,19 +2,42 @@ import hashlib
 import logging
 import os
 import socket
+import sqlite3
 import threading
+
+def setup_database():
+    conn = sqlite3.connect('email_server.db')
+    cursor = conn.cursor()
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS emails (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            sender TEXT,
+            subject TEXT,
+            body TEXT
+        );''')
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS users (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            email_addr TEXT UNIQUE
+        );''')
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS email_rcpt (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            email_id INTEGER,
+            rcpt_id INTEGER,
+            FOREIGN KEY(email_id) REFERENCES emails(id),
+            FOREIGN KEY(rcpt_id) REFERENCES users(id)
+        );''')
+    conn.commit()
+    conn.close()
 
 logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %(message)s')
 
-
-EMAILS_STORAGE_DIR = "emails"
-PASSWORDS_FILE = "passwords.txt"
+PASSWORDS_FILE = "SMTP_passwords.txt"
 
 if not os.path.isfile(PASSWORDS_FILE):
     open(PASSWORDS_FILE, 'w').close()
 
-if not os.path.exists(EMAILS_STORAGE_DIR):
-    os.makedirs(EMAILS_STORAGE_DIR)
 
 
 class SMTPServer:
@@ -33,8 +56,8 @@ class SMTPServer:
 
             while True:
                 client_socket, client_address = server_socket.accept()
-                logging.info(msg=f"Connection from {client_address}")
-                self.handle_client(client_socket)
+                logging.info(f"Connection from {client_address}")
+                threading.Thread(target=self.handle_client, args=(client_socket,)).start()
 
     def handle_client(self, client_socket):
         client_socket.sendall(b"220 Welcome to SMTP Server\r\n")
@@ -42,6 +65,7 @@ class SMTPServer:
         sender = None
         data_mode = False
         message_data = ""
+        message_subject = ""
         response = None
         login = False
 
@@ -58,9 +82,11 @@ class SMTPServer:
             if data_mode:
                 if data == ".":
                     data_mode = False
-                    self.store_email(sender, recipients, message_data)
+                    self.store_email(sender, recipients, message_data, message_subject)
                     client_socket.sendall(b"250 OK: Message accepted for delivery\r\n")
                     message_data = ""
+                elif data.startswith("SUBJECT:"):
+                    message_subject = data.split(":")[1].strip()
                 else:
                     message_data+= data + "\r\n"
                 continue
@@ -85,7 +111,7 @@ class SMTPServer:
 
                     if user in passwords:
                         logging.info(f"user {user} attempting login")
-                        self.client_socket.sendall(f"250 Hello {user}, enter your password please:\r\n".encode())
+                        client_socket.sendall(f"250 Hello {user}, enter your password please:\r\n".encode())
                         login = False
 
                         for i in range(5):
@@ -107,7 +133,9 @@ class SMTPServer:
                         password = client_socket.recv(1024).decode().strip()
                         passwords_file.write(f"{user}:{hashlib.sha3_224(password.encode()).hexdigest()}\n")
                         response = "250 OK, Password set\r\n"
+                        login = True
                         logging.info(msg=f"New user {user} created and logged in")
+                sender = user
 
 
             elif not login:
@@ -122,10 +150,14 @@ class SMTPServer:
                 response = "250 Sender OK\r\n"
 
             elif data.split(":")[0] == "RCPT TO":
+                recipient = data.split(":")[1].strip()
                 if len(split_data) != 3:
                     client_socket.sendall(f"501 1 params expected, got {len(split_data) - 2}\r\n".encode())
                     continue
-                recipients.append(data.split(":")[1].strip())
+                if not check_user_exists(recipient):
+                    client_socket.sendall(f"550 User {recipient} not found\r\n".encode())
+                    continue
+                recipients.append(recipient)
                 response = "250 Recipient OK\r\n"
 
             elif split_data[0] == "DATA":
@@ -143,18 +175,49 @@ class SMTPServer:
 
         client_socket.close()
 
+    def store_email(self, sender, recipients, message_data, message_subject):
+        conn = sqlite3.connect('email_server.db')
+        cursor = conn.cursor()
+        try:
+            cursor.execute('''
+                INSERT INTO emails (sender, subject, body)
+                VALUES (?, ?, ?);
+            ''', (sender, message_subject, message_data))
+            email_id = cursor.lastrowid
 
-    def store_email(self, sender, recipients, message_data):
-        email_id = len(os.listdir(EMAILS_STORAGE_DIR))
-        email_path = os.path.join(EMAILS_STORAGE_DIR, f"email_{email_id}.txt")
-        with open(email_path, "w") as email_file:
-            email_file.write(f"From: {sender}\n")
-            email_file.write(f"To: {recipients}\n")
-            email_file.write(message_data)
-        logging.info(msg=f"Stored email {email_id} from {sender} to {recipients}")
+            for rcpt in recipients:
+                cursor.execute('''
+                    INSERT OR IGNORE INTO users (email_addr)
+                    VALUES (?);
+                ''', (rcpt,))
+                cursor.execute('''
+                    INSERT INTO email_rcpt (email_id, rcpt_id)
+                    VALUES (?, (SELECT id FROM users WHERE email_addr = ?));
+                ''', (email_id, rcpt))
+
+            conn.commit()
+            logging.info(f"Stored email {email_id} from {sender} to {recipients}")
+
+        except sqlite3.Error as e:
+            logging.error(f"Error storing email: {e}")
+            conn.rollback()
+        finally:
+            conn.close()
+
+def check_user_exists(username):
+    conn = sqlite3.connect('email_server.db')
+    cursor = conn.cursor()
+    cursor.execute('''
+        SELECT COUNT(*)
+        FROM users
+        WHERE email_addr = ?;
+    ''', (username,))
+    count = cursor.fetchone()[0]
+    if count == 0:
+        return False
+
 
 if __name__ == "__main__":
+    setup_database()
     server = SMTPServer()
     server.start_server()
-
-
