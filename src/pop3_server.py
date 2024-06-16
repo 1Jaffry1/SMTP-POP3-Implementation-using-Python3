@@ -1,41 +1,10 @@
 import hashlib
 import logging
-import os
-import socket
-import sqlite3
-import threading
-from smtp_server import setup_database
+from Server import ServerClass
+from DbCommands import *
 
 
-logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %(message)s')
-
-
-PASSWORDS_FILE = "POP3_passwords.txt"
-
-if not os.path.isfile(PASSWORDS_FILE):
-    open(PASSWORDS_FILE, 'w').close()
-
-
-
-class POP3Server:
-    def __init__(self, host="0.0.0.0", port=25):
-        self.host = host
-        self.port = port
-        self.server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        self.client_socket = None
-
-    def start_server(self, host='0.0.0.0', port=25):
-        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as server_socket:
-            server_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-            server_socket.bind((host, port))
-            server_socket.listen(5)
-            logging.info(msg=f"POP3 server listening on port {port}...")
-
-            while True:
-                client_socket, client_address = server_socket.accept()
-                logging.info(f"Connection from {client_address}")
-                threading.Thread(target=self.handle_client, args=(client_socket,)).start()
-
+class POP3Server(ServerClass):
 
     def handle_client(self, client_socket):
         self.client_socket = client_socket
@@ -50,8 +19,11 @@ class POP3Server:
             command, *args= request.split()
             logging.debug(f"Received request: {request}")
             if command == "USER":
-                user = request.split()[1]
-                self.client_socket.sendall(b"+OK User accepted\r\n")
+                try:
+                    user = request.split()[1]
+                    self.client_socket.sendall(b"+OK User accepted\r\n")
+                except IndexError:
+                    client_socket.sendall(b"-ERR User required\r\n")
 
             elif command == "PASS":
                 try:
@@ -59,28 +31,25 @@ class POP3Server:
                 except IndexError:
                     self.client_socket.sendall(b"-ERR Password required\r\n")
                     continue
-                with open(PASSWORDS_FILE, "r+") as passwords_file:
-                    passwords = dict([line.strip().split(":") for line in passwords_file.readlines()])
 
-                    if user in passwords:
-                        if hashlib.sha3_224(password.encode()).hexdigest() == passwords[user]:
-                            login = True
-                            self.client_socket.sendall(b"+OK Password accepted\r\n")
-                            continue
-                        else:
-                            pass_count += 1
-                            if pass_count == 5:
-                                self.client_socket.sendall(b"-ERR Too many invalid login attempts, closing connection\r\n")
-                                self.client_socket.close()
-                                break
-                            self.client_socket.sendall(b"-ERR Invalid login\r\n")
-
-                    else:
-                        client_socket.sendall(b"+New user, password set\r\n")
-                        passwords_file.write(f"{user}:{hashlib.sha3_224(password.encode()).hexdigest()}\n")
-                        add_user(user)
+                if check_user_exists(user):
+                    if hashlib.sha3_224(password.encode()).hexdigest() == get_field("users", "password", "email_addr", user):
                         login = True
-                        logging.info(msg=f"New user {user} created and logged in")
+                        self.client_socket.sendall(b"+OK Password accepted\r\n")
+                        continue
+                    else:
+                        pass_count += 1
+                        if pass_count == 5:
+                            self.client_socket.sendall(b"-ERR Too many invalid login attempts, closing connection\r\n")
+                            self.client_socket.close()
+                            break
+                        self.client_socket.sendall(b"-ERR Invalid login\r\n")
+
+                else:
+                    client_socket.sendall(b"+New user, password set\r\n")
+                    add_user(user, password)
+                    login = True
+                    logging.info(msg=f"New user {user} created and logged in")
 
 
             elif command == "QUIT":
@@ -129,15 +98,7 @@ class POP3Server:
                 client_socket.sendall(b"-ERR Unknown command\r\n")
 
 
-def add_user(email_addr):
-    conn = sqlite3.connect('email_server.db')
-    cursor = conn.cursor()
-    cursor.execute('''
-        INSERT INTO users (email_addr)
-        VALUES (?);
-    ''', (email_addr,))
-    conn.commit()
-    conn.close()
+
     
     
 def stat_mailbox(user):
@@ -212,18 +173,19 @@ def delete_message(user, msg_id):
     conn = sqlite3.connect('email_server.db')
     cursor = conn.cursor()
     cursor.execute('''
-           DELETE FROM emails
-           WHERE id = ? AND sender IN (
-               SELECT email_addr
-               FROM users
-               WHERE email_addr = ?
-           );
-       ''', (msg_id, user))
+        DELETE FROM emails 
+        WHERE id IN (
+            SELECT e.id FROM emails e
+            JOIN email_user r ON e.id = r.email_id
+            JOIN users u ON u.id = r.user_id
+            WHERE u.email_addr = ? AND e.id = ?
+        );
+    ''', (user, msg_id))
     conn.commit()
     conn.close()
 
 
 if __name__ == "__main__":
     setup_database()
-    pop3_server = POP3Server()
+    pop3_server = POP3Server("POP3", "0.0.0.0", 110)
     pop3_server.start_server()
