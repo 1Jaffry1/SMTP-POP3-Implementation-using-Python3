@@ -1,6 +1,6 @@
+import logging
 import socket
 import threading
-import logging
 
 
 class ServerClass:
@@ -28,5 +28,3 @@ class ServerClass:
 
     def handle_client(self):
         pass
-
-

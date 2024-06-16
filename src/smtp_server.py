@@ -1,9 +1,8 @@
 import hashlib
 import logging
-from Server import ServerClass
+
 from DbCommands import *
-
-
+from Server import ServerClass
 
 
 class SMTPServer(ServerClass):
@@ -78,8 +77,8 @@ class SMTPServer(ServerClass):
 
                 for i in range(5):
                     password = client_socket.recv(1024).decode().strip()
-                    if hashlib.sha3_224(password.encode()).hexdigest() == get_field("users", "password",
-                                                                                    "email_addr", user):
+                    if hashlib.sha3_224(password.encode()).hexdigest() == get_field("users", "password", "email_addr",
+                                                                                    user):
                         response = "250 OK, Authenticated\r\n"
                         logging.info(msg=f"user {user} logged in")
                         login = True
@@ -106,7 +105,8 @@ class SMTPServer(ServerClass):
                     continue
                 sender = data.split(":")[1].strip()
                 if not (sender == "@ME" or sender == user):
-                    client_socket.sendall(f"501 Invalid sender {sender}, sender must be '@ME' or your username\r\n".encode())
+                    client_socket.sendall(
+                        f"501 Invalid sender {sender}, sender must be '@ME' or your username\r\n".encode())
                     continue
                 sender = user
                 response = "250 Sender OK\r\n"

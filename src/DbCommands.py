@@ -1,5 +1,6 @@
 import sqlite3
 
+
 def setup_database():
     conn = sqlite3.connect('email_server.db')
     cursor = conn.cursor()
@@ -41,6 +42,7 @@ def check_user_exists(username):
     if count == 0:
         return False
     return True
+
 
 def set_field(table, field, value, condition_field, condition_value):
     conn = sqlite3.connect('email_server.db')

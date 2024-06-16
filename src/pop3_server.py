@@ -1,7 +1,8 @@
 import hashlib
 import logging
-from Server import ServerClass
+
 from DbCommands import *
+from Server import ServerClass
 
 
 class POP3Server(ServerClass):
@@ -16,7 +17,7 @@ class POP3Server(ServerClass):
 
         while True:
             request = self.client_socket.recv(1024).decode().strip()
-            command, *args= request.split()
+            command, *args = request.split()
             logging.debug(f"Received request: {request}")
             if command == "USER":
                 try:
@@ -34,7 +35,8 @@ class POP3Server(ServerClass):
                     continue
 
                 if check_user_exists(user):
-                    if hashlib.sha3_224(password.encode()).hexdigest() == get_field("users", "password", "email_addr", user):
+                    if hashlib.sha3_224(password.encode()).hexdigest() == get_field("users", "password", "email_addr",
+                                                                                    user):
                         login = True
                         self.client_socket.sendall(b"+OK Password accepted\r\n")
                         continue
@@ -44,7 +46,7 @@ class POP3Server(ServerClass):
                             self.client_socket.sendall(b"-ERR Too many invalid login attempts, closing connection\r\n")
                             self.client_socket.close()
                             break
-                        self.client_socket.sendall(f"-ERR Invalid login, {5-i} attempts remaining\r\n".encode())
+                        self.client_socket.sendall(f"-ERR Invalid login, {5 - i} attempts remaining\r\n".encode())
 
                 else:
                     client_socket.sendall(b"+New user, password set\r\n")
@@ -70,7 +72,7 @@ class POP3Server(ServerClass):
             elif command == "LIST":
                 message_list = list_messages(user)
                 client_socket.sendall(f"+OK {len(message_list)} messages\r\n".encode())
-                for msg_id, sender, subject,size in message_list:
+                for msg_id, sender, subject, size in message_list:
                     client_socket.sendall(f"id:{msg_id} {sender} {subject} {size}\r\n".encode())
                 client_socket.sendall(b"\r\n")
 
@@ -99,9 +101,6 @@ class POP3Server(ServerClass):
                 client_socket.sendall(b"-ERR Unknown command\r\n")
 
 
-
-    
-    
 def stat_mailbox(user):
     conn = sqlite3.connect('email_server.db')
     cursor = conn.cursor()
@@ -144,7 +143,7 @@ def retrieve_with_id(user, id):
     result = ""
     get = cursor.fetchall()
     for id, sender, subject, body in get:
-        result+=f"Message {id}\nFROM: {sender}\nSUBJECT: {subject}\n\n{body}\nEND OF MESSAGE\n\n"
+        result += f"Message {id}\nFROM: {sender}\nSUBJECT: {subject}\n\n{body}\nEND OF MESSAGE\n\n"
     conn.close()
     if result:
         return result
@@ -164,11 +163,12 @@ def retrieve_message(user):
     result = ""
     get = cursor.fetchall()
     for sender, subject, body in get:
-        result+=f"FROM: {sender}\nSUBJECT: {subject}\n\n{body}\nEND OF MESSAGE\n\n"
+        result += f"FROM: {sender}\nSUBJECT: {subject}\n\n{body}\nEND OF MESSAGE\n\n"
     conn.close()
     if result:
         return result
     return None
+
 
 def delete_message(user, msg_id):
     conn = sqlite3.connect('email_server.db')
