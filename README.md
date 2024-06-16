@@ -9,7 +9,15 @@ the `HELO` and `EHLO` commands in the SMTP server, or the `USER` command in the 
 - Authentication supported
 - Email data is not secured, it is stored in plain text in the database
 - sqlite3 is used for DB
-#
+## How to use
+1. Clone the repository
+2. Run the `smtp_server.py` and `pop3_server.py` files
+3. Use a client like `telnet` to connect to the servers (in terminal, enter `telnet localhost 25` for SMTP or `telnet localhost 110` for POP3)
+4. Use the commands listed below to interact with the servers
+5. Use QUIT to close a connection
+##
+
+
 ### Commands for SMTP server:
 
 1- `HELO <username>` - to create a new user account (No authentication will be done, not secure, it cannot log-into secure accounts)
