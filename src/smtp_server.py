@@ -1,45 +1,19 @@
 import hashlib
 import logging
-import os
-import socket
-import threading
+from Server import ServerClass
 from DbCommands import *
 
-logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %(message)s')
-
-PASSWORDS_FILE = "SMTP_passwords.txt"
-
-if not os.path.isfile(PASSWORDS_FILE):
-    open(PASSWORDS_FILE, 'w').close()
 
 
-class SMTPServer:
-    def __init__(self, host, port):
-        self.host = host
-        self.port = port
-        self.server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        self.client_socket = None
 
-    def start_server(self):
-        host = self.host
-        port = self.port
-        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as server_socket:
-            server_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-            server_socket.bind((host, port))
-            server_socket.listen(5)
-            logging.info(msg=f"SMTP server listening on port {port}...")
-
-            while True:
-                client_socket, client_address = server_socket.accept()
-                logging.info(f"Connection from {client_address}")
-                threading.Thread(target=self.handle_client, args=(client_socket,)).start()
+class SMTPServer(ServerClass):
 
     def handle_client(self, client_socket):
         client_socket.sendall(b"220 Welcome to SMTP Server\r\n")
         recipients = []
         user = None
-        sender = None
         data_mode = False
+        sender = None
         message_data = ""
         message_subject = ""
         response = None
@@ -63,6 +37,8 @@ class SMTPServer:
                     self.store_email(sender, recipients, message_data, message_subject)
                     client_socket.sendall(b"250 OK: Message accepted for delivery\r\n")
                     message_data = ""
+                    message_subject = ""
+                    recipients = []
                     step = 1
                 elif data.startswith("SUBJECT:"):
                     message_subject = data.split(":")[1].strip()
@@ -90,8 +66,7 @@ class SMTPServer:
                     logging.info(f"New user {user} attempting to create account")
                     client_socket.sendall(f"250 Hello new user:{user}, enter a password please:\r\n".encode())
                     password = client_socket.recv(1024).decode().strip()
-                    add_user(user)
-                    set_field("users", "password", hashlib.sha3_224(password.encode()).hexdigest(), "email_addr", user)
+                    add_user(user, hashlib.sha3_224(password.encode()).hexdigest())
                     client_socket.sendall(b"250 OK, Password set\r\n")
                     login = True
                     logging.info(msg=f"New user {user} created and logged in")
@@ -199,5 +174,5 @@ class SMTPServer:
 
 if __name__ == "__main__":
     setup_database()
-    server = SMTPServer("0.0.0.0", 25)
+    server = SMTPServer("SMTP", "0.0.0.0", 25)
     server.start_server()
