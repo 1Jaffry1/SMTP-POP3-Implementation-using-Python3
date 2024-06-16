@@ -54,8 +54,11 @@ class POP3Server:
                 self.client_socket.sendall(b"+OK User accepted\r\n")
 
             elif command == "PASS":
-
-                password = request.split()[1]
+                try:
+                    password = request.split()[1]
+                except IndexError:
+                    self.client_socket.sendall(b"-ERR Password required\r\n")
+                    continue
                 with open(PASSWORDS_FILE, "r+") as passwords_file:
                     passwords = dict([line.strip().split(":") for line in passwords_file.readlines()])
 
@@ -97,15 +100,18 @@ class POP3Server:
             elif command == "LIST":
                 message_list = list_messages(user)
                 client_socket.sendall(f"+OK {len(message_list)} messages\r\n".encode())
-                for msg_id, size in message_list:
-                    client_socket.sendall(f"{msg_id} {size}\r\n".encode())
-                client_socket.sendall(b".\r\n")
+                for msg_id, sender, subject,size in message_list:
+                    client_socket.sendall(f"id:{msg_id} {sender} {subject} {size}\r\n".encode())
+                client_socket.sendall(b"\r\n")
 
             elif command == "RETR":
-                message = retrieve_message(user)
+                if args:
+                    message = retrieve_with_id(user, int(args[0]))
+                else:
+                    message = retrieve_message(user)
                 if message:
-                    client_socket.sendall(b"+OK message follows\r\n")
-                    client_socket.sendall(message.encode() + b"\r\n.\r\n")
+                    client_socket.sendall(b"+OK messages follow\r\n\n")
+                    client_socket.sendall(message.encode() + b"\r\n")
                 else:
                     client_socket.sendall(b"-ERR No such message\r\n")
 
@@ -147,11 +153,12 @@ def stat_mailbox(user):
     conn.close()
     return num_messages, total_size
 
+
 def list_messages(user):
     conn = sqlite3.connect('email_server.db')
     cursor = conn.cursor()
     cursor.execute('''
-        SELECT E.SENDER, E.subject, LENGTH(E.body)
+        SELECT E.ID, E.SENDER, E.subject, LENGTH(E.body)
         FROM users u
         JOIN email_user r ON u.id = r.user_id
         JOIN emails e ON r.email_id = e.id
@@ -160,6 +167,27 @@ def list_messages(user):
     message_list = cursor.fetchall()
     conn.close()
     return message_list
+
+
+def retrieve_with_id(user, id):
+    conn = sqlite3.connect('email_server.db')
+    cursor = conn.cursor()
+    cursor.execute('''
+        SELECT e.id, e.sender, e.subject, e.body
+        FROM users u
+        JOIN email_user r ON u.id = r.user_id
+        JOIN emails e ON r.email_id = e.id
+        WHERE U.email_addr = ? and e.id = ?
+''', (user, id))
+    result = ""
+    get = cursor.fetchall()
+    for id, sender, subject, body in get:
+        result+=f"Message {id}\nFROM: {sender}\nSUBJECT: {subject}\n\n{body}\nEND OF MESSAGE\n\n"
+    conn.close()
+    if result:
+        return result
+    return None
+
 
 def retrieve_message(user):
     conn = sqlite3.connect('email_server.db')
@@ -173,10 +201,8 @@ def retrieve_message(user):
 ''', (user,))
     result = ""
     get = cursor.fetchall()
-    for row in get:
-        for item in row:
-            result += str(item) + "\n"
-        result+="\n"
+    for sender, subject, body in get:
+        result+=f"FROM: {sender}\nSUBJECT: {subject}\n\n{body}\nEND OF MESSAGE\n\n"
     conn.close()
     if result:
         return result
