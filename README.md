@@ -1,3 +1,5 @@
+# SMTP and POP3 Email Server
+
 This is an implementation of an email server that uses an SMTP server that listens on port 25 and supports mail sending.
 Mail receiving is achieved using a POP3 server that listens on port 110 and supports mail retrieval. The servers interact
 using a common database, meaning you will need to create a user account in any one of the two servers. You can achieve that using
