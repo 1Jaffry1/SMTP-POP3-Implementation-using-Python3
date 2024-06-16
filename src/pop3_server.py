@@ -21,6 +21,7 @@ class POP3Server(ServerClass):
             if command == "USER":
                 try:
                     user = request.split()[1]
+                    login = False
                     self.client_socket.sendall(b"+OK User accepted\r\n")
                 except IndexError:
                     client_socket.sendall(b"-ERR User required\r\n")
@@ -43,7 +44,7 @@ class POP3Server(ServerClass):
                             self.client_socket.sendall(b"-ERR Too many invalid login attempts, closing connection\r\n")
                             self.client_socket.close()
                             break
-                        self.client_socket.sendall(b"-ERR Invalid login\r\n")
+                        self.client_socket.sendall(f"-ERR Invalid login, {5-i} attempts remaining\r\n".encode())
 
                 else:
                     client_socket.sendall(b"+New user, password set\r\n")
