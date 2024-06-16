@@ -102,8 +102,7 @@ class POP3Server:
                 client_socket.sendall(b".\r\n")
 
             elif command == "RETR":
-                msg_id = int(args[0])
-                message = retrieve_message(user, msg_id)
+                message = retrieve_message(user)
                 if message:
                     client_socket.sendall(b"+OK message follows\r\n")
                     client_socket.sendall(message.encode() + b"\r\n.\r\n")
@@ -152,28 +151,35 @@ def list_messages(user):
     conn = sqlite3.connect('email_server.db')
     cursor = conn.cursor()
     cursor.execute('''
-        SELECT e.id, e.subject, LENGTH(e.body)
-        FROM emails e
-        JOIN users r ON e.id = r.id
-        WHERE r.email_addr = ?;
+        SELECT E.SENDER, E.subject, LENGTH(E.body)
+        FROM users u
+        JOIN email_user r ON u.id = r.user_id
+        JOIN emails e ON r.email_id = e.id
+        WHERE U.email_addr = ?;
 ''', (user,))
     message_list = cursor.fetchall()
     conn.close()
     return message_list
 
-def retrieve_message(user, msg_id):
+def retrieve_message(user):
     conn = sqlite3.connect('email_server.db')
     cursor = conn.cursor()
     cursor.execute('''
-        SELECT e.body
-        FROM emails e
-        JOIN users r ON e.id = r.id
-        WHERE r.email_addr = ? AND e.id = ?;
-    ''', (user, msg_id))
-    result = cursor.fetchone()
+        SELECT e.sender, e.subject, e.body
+        FROM users u
+        JOIN email_user r ON u.id = r.user_id
+        JOIN emails e ON r.email_id = e.id
+        WHERE U.email_addr = ?;
+''', (user,))
+    result = ""
+    get = cursor.fetchall()
+    for row in get:
+        for item in row:
+            result += str(item) + "\n"
+        result+="\n"
     conn.close()
     if result:
-        return result[0]
+        return result
     return None
 
 def delete_message(user, msg_id):
