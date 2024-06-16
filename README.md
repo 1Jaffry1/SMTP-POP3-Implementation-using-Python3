@@ -8,8 +8,9 @@ the `HELO` and `EHLO` commands in the SMTP server, or the `USER` command in the 
 - Multithreading is supported
 - Authentication supported
 - Email data is not secured, it is stored in plain text in the database
+- sqlite3 is used for DB
 #
-Commands for SMTP server:
+### Commands for SMTP server:
 
 1- `HELO <username>` - to create a new user account (No authentication will be done, not secure, it cannot log-into secure accounts)
 
@@ -24,7 +25,7 @@ Commands for SMTP server:
 6- `QUIT` - to close the connection.
 
 #
-Commands for the POP3 server:
+### Commands for the POP3 server:
 
 1- `USER <username>` - to log into an existing user account, or create a new user account.
 
