@@ -52,6 +52,10 @@ class SMTPServer(ServerClass):
 
             elif split_data[0].split(":")[0] == "HELO":
                 user = data.split()[1]
+                if check_user_exists(user) and get_field("users", "password", "email_addr", user):
+                    client_socket.sendall(b"500 Anauthorized using `HELO`\r\n")
+                    continue
+                add_user(user, None)
                 response = f"250 Hello {user}\r\n"
                 login = True
 
