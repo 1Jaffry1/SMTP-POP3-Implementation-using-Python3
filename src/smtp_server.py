@@ -51,11 +51,15 @@ class SMTPServer(ServerClass):
                 break
 
             elif split_data[0].split(":")[0] == "HELO":
+                if len(split_data) != 2:
+                    client_socket.sendall(f"501 2 params expected, got {len(split_data)}\r\n".encode())
+                    break
                 user = data.split()[1]
                 if check_user_exists(user) and get_field("users", "password", "email_addr", user):
-                    client_socket.sendall(b"500 Anauthorized using `HELO`\r\n")
+                    client_socket.sendall(b"530 Authorize using `EHLO`\r\n")
                     continue
-                add_user(user, None)
+                if not check_user_exists(user):
+                    add_user(user, None)
                 response = f"250 Hello {user}\r\n"
                 login = True
 
@@ -70,20 +74,30 @@ class SMTPServer(ServerClass):
                     client_socket.sendall(f"250 Hello new user:{user}, enter a password please:\r\n".encode())
                     password = client_socket.recv(1024).decode().strip()
                     add_user(user, hashlib.sha3_224(password.encode()).hexdigest())
-                    client_socket.sendall(b"250 OK, Password set\r\n")
+                    client_socket.sendall(b"235 OK: Password set\r\n")
                     login = True
                     logging.info(msg=f"New user {user} created and logged in")
+                    continue
+
+
+                elif get_field("users", "password", "email_addr", user) is None:
+                    logging.info(f"User {user} attempting to create password")
+                    client_socket.sendall(f"235 Hello user: {user}, enter a password please:\r\n".encode())
+                    password = client_socket.recv(1024).decode().strip()
+                    set_field("users", "password", hashlib.sha3_224(password.encode()).hexdigest(),"email_addr", user)
+                    client_socket.sendall(b"235 OK: Password set\r\n")
+                    login = True
+                    logging.info(msg=f"Password for user {user} set and logged in")
                     continue
 
                 logging.info(f"user {user} attempting login")
                 client_socket.sendall(f"250 Hello {user}, enter your password please:\r\n".encode())
                 login = False
-
                 for i in range(5):
                     password = client_socket.recv(1024).decode().strip()
                     if hashlib.sha3_224(password.encode()).hexdigest() == get_field("users", "password", "email_addr",
                                                                                     user):
-                        response = "250 OK, Authenticated\r\n"
+                        response = "235 OK: Authenticated\r\n"
                         logging.info(msg=f"user {user} logged in")
                         login = True
                         break
@@ -96,7 +110,7 @@ class SMTPServer(ServerClass):
 
 
             elif not login:
-                client_socket.sendall(b"500 Authentication error: You must authenticate first\r\n")
+                client_socket.sendall(b"530 Authentication required: You must authenticate first\r\n")
                 continue
 
             elif data.split(":")[0] == "MAIL FROM":
@@ -110,7 +124,7 @@ class SMTPServer(ServerClass):
                 sender = data.split(":")[1].strip()
                 if not (sender == "@ME" or sender == user):
                     client_socket.sendall(
-                        f"501 Invalid sender {sender}, sender must be '@ME' or your username\r\n".encode())
+                        f"553 Invalid sender {sender}, sender must be '@ME' or your username\r\n".encode())
                     continue
                 sender = user
                 response = "250 Sender OK\r\n"
@@ -147,6 +161,7 @@ class SMTPServer(ServerClass):
                 response = "502 Command not recognized\r\n"
 
             client_socket.sendall(response.encode())
+
 
         client_socket.close()
 
