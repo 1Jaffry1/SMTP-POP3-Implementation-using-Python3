@@ -10,7 +10,12 @@ class ServerClass:
         self.server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self.client_socket = None
         self.name = name
-        logging.basicConfig(level=logging.DEBUG, format=f'%(asctime)s - {name} -- %(levelname)s - %(message)s')
+        self.logger = logging.getLogger(name)
+        self.logger.setLevel(logging.DEBUG)
+        handler = logging.StreamHandler()
+        formatter = logging.Formatter(f'%(asctime)s - {name} -- %(levelname)s - %(message)s')
+        handler.setFormatter(formatter)
+        self.logger.addHandler(handler)
 
     def start_server(self):
         host = self.host
@@ -19,12 +24,11 @@ class ServerClass:
             server_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
             server_socket.bind((host, port))
             server_socket.listen(5)
-            logging.info(msg=f"{self.name} server listening on port {port}...")
+            self.logger.info(msg=f"{self.name} server listening on port {port}...")
 
             while True:
                 client_socket, client_address = server_socket.accept()
-                logging.info(f"Connection from {client_address}")
+                self.logger.info(f"Connection from {client_address}")
                 threading.Thread(target=self.handle_client, args=(client_socket,)).start()
-
     def handle_client(self):
         pass
