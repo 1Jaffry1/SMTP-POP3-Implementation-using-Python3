@@ -57,11 +57,11 @@ def set_field(table, field, value, condition_field, condition_value):
     conn.close()
 
 
-def get_field(table, field, condition_field, condition_value):
+def get_field(table, GETfield, condition_field, condition_value):
     conn = sqlite3.connect('email_server.db')
     cursor = conn.cursor()
     cursor.execute(f'''
-        SELECT {field}
+        SELECT {GETfield}
         FROM {table}
         WHERE {condition_field} = ?;
     ''', (condition_value,))
