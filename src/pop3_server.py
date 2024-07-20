@@ -29,14 +29,13 @@ class POP3Server(ServerClass):
 
             elif command == "PASS":
                 try:
-                    password = request.split()[1]
+                    password = request.split("PASS ")[1]
                 except IndexError:
                     self.client_socket.sendall(b"-ERR Password required\r\n")
                     continue
 
                 if check_user_exists(user):
-                    if hashlib.sha3_224(password.encode()).hexdigest() == get_field("users", "password", "email_addr",
-                                                                                    user):
+                    if hashlib.sha3_224(password.encode()).hexdigest() == get_field("users", "password", "email_addr", user):
                         login = True
                         self.client_socket.sendall(b"+OK Password accepted\r\n")
                         continue
@@ -46,11 +45,11 @@ class POP3Server(ServerClass):
                             self.client_socket.sendall(b"-ERR Too many invalid login attempts, closing connection\r\n")
                             self.client_socket.close()
                             break
-                        self.client_socket.sendall(f"-ERR Invalid login, {5 - i} attempts remaining\r\n".encode())
+                        self.client_socket.sendall(f"-ERR Invalid login, {5 - pass_count} attempts remaining\r\n".encode())
 
                 else:
                     client_socket.sendall(b"+New user, password set\r\n")
-                    add_user(user, password)
+                    add_user(user, hashlib.sha3_224(password.encode()).hexdigest())
                     login = True
                     logging.info(msg=f"New user {user} created and logged in")
 
@@ -174,14 +173,9 @@ def delete_message(user, msg_id):
     conn = sqlite3.connect('email_server.db')
     cursor = conn.cursor()
     cursor.execute('''
-        DELETE FROM emails 
-        WHERE id IN (
-            SELECT e.id FROM emails e
-            JOIN email_user r ON e.id = r.email_id
-            JOIN users u ON u.id = r.user_id
-            WHERE u.email_addr = ? AND e.id = ?
-        );
-    ''', (user, msg_id))
+        DELETE FROM email_user
+        WHERE email_id = ? AND user_id = (SELECT id FROM users WHERE email_addr = ?);
+    ''', (msg_id, user));
     conn.commit()
     conn.close()
 
