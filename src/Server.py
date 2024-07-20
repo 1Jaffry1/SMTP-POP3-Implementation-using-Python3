@@ -30,5 +30,6 @@ class ServerClass:
                 client_socket, client_address = server_socket.accept()
                 self.logger.info(f"Connection from {client_address}")
                 threading.Thread(target=self.handle_client, args=(client_socket,)).start()
-    def handle_client(self):
+
+    def handle_client(self, client_socket):
         pass
