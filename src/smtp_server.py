@@ -23,9 +23,7 @@ class SMTPServer(ServerClass):
             if step == 0 and login:
                 step = 1
             data = client_socket.recv(1024).decode().strip()
-            if not data:
-                client_socket.sendall(b"500 Syntax error: no command provided\r\n")
-                continue
+
 
             logging.info(msg=f"Received: command << {data} >>")
             split_data = data.split(" ")
@@ -43,6 +41,10 @@ class SMTPServer(ServerClass):
                     message_subject = data.split(":")[1].strip()
                 else:
                     message_data += data + "\r\n"
+                continue
+
+            if not data:
+                client_socket.sendall(b"500 Syntax error: no command provided\r\n")
                 continue
 
             # COMMANDS SECTION, FIRST CHECK FOR QUIT
@@ -71,7 +73,7 @@ class SMTPServer(ServerClass):
 
                 if not check_user_exists(user):
                     logging.info(f"New user {user} attempting to create account")
-                    client_socket.sendall(f"211 Hello new user:{user}, enter a password please:\r\n".encode())
+                    client_socket.sendall(f"211 Hello new user: {user}, enter a password please:\r\n".encode())
                     password = client_socket.recv(1024).decode().strip()
                     add_user(user, hashlib.sha3_224(password.encode()).hexdigest())
                     client_socket.sendall(b"235 Authenticated: Password set\r\n")
