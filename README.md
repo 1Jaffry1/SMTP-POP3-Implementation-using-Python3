@@ -11,8 +11,8 @@ the `HELO` and `EHLO` commands in the SMTP server, or the `USER` command in the 
 - sqlite3 is used for DB
 ## How to use
 1. Clone the repository
-2. Run the `smtp_server.py` and `pop3_server.py` files
-3. Use a client like `telnet` to connect to the servers (in terminal, enter `telnet localhost 25` for SMTP or `telnet localhost 110` for POP3)
+2. Run the `main.py` file
+3. Use a client like `telnet` or `nc` on MacOS to connect to the servers (in terminal, enter `telnet localhost 25` for SMTP or `telnet localhost 110` for POP3)
 4. Use the commands listed below to interact with the servers
 5. Use QUIT to close a connection
 ##
@@ -53,4 +53,32 @@ the `HELO` and `EHLO` commands in the SMTP server, or the `USER` command in the 
 
 7- `QUIT` - to close the connection.
 
+<hr>
 
+## Implementation Details
+
+### Server Parent Class:
+This class is the parent class for both the SMTP and POP3 servers. It contains the following methods:
+
+`__init__()`: Initializes the server with the given port number and the server type, and sets logger specific to each server
+
+`start_server()`: Starts the server and listens for incoming connections, listens upto 5 connections at a time using threading.
+
+`handle_client()`: Abstracted method, handles the client connection, reads the incoming data and sends the response back to the client. This method is implemented in the child classes.
+
+### SMTP Server
+
+This class is a child class of the Server class. It contains the following functionalities:
+
+1. Implements the `handle_client()` method to handle the SMTP client connection. It reads the incoming data from the client and sends the response back to the client. It is setup as a FSM to handle the SMTP commands, and their order.
+
+    1. It initializes variables, such as the current state, the sender of the email, the data and the recipient list.
+   2. It splits the command sent by the user, and passes the arguments to the respective function based on the command type.
+   3. Manages user authentication status using the `login` variable. 
+
+2. `HELO`: Checks if a user with the provided username exists already. If so, if the username has a password set, it will not allow login.
+3. `EHLO`: Checks if a user with the provided username exists already. If the user exists and has a password set, it will prompt the user to enter the password, if the password field is empty, it will prompt the user to set a password. If user does not exist, it will create a new user, and set a password.
+4. `MAIL FROM`: Sets the sender of the email. The sender must be `@ME` or the username.
+5. `RCPT TO`: Sets the receivers of the email. The receivers are added to a list, and multiple receivers are supported. The function connects to the database and checks each of the users at the time they are added.
+6. `DATA`: Enters the data mode, and reads the email body. The email body is stored as a string, and is sent to the socket line by line until `.` is sent on a new line. The message will be stored in the database.
+7. 
